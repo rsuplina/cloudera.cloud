@@ -89,33 +89,6 @@ groups:
       returned: on success
       type: str
       sample: example-01
-    users:
-      description: List of User CRNs which are members of the group.
-      returned: on success
-      type: list
-      elements: str
-    roles:
-      description: List of Role CRNs assigned to the group.
-      returned: on success
-      type: list
-      elements: str
-    resourceRoles:
-    # resource_roles:
-      description: List of Resource-to-Role assignments, by CRN, that are associated with the group.
-      returned: on success
-      type: list
-      elements: dict
-      contains:
-        resourceCrn:
-        # resource_crn:
-          description: The CRN of the resource granted the rights of the role.
-          returned: on success
-          type: str
-        resourceRoleCrn:
-        # resource_role_crn:
-          description: The CRN of the CDP Role.
-          returned: on success
-          type: str
     syncMembershipOnUserLogin:
     # sync_membership_on_user_login:
       description: Flag indicating whether group membership is synced when a user logs in. The default is to sync group membership.
