@@ -487,7 +487,7 @@ sdk_out_lines:
   elements: str
 """
 
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from ansible_collections.cloudera.cloud.plugins.module_utils.common import (
     ServicesModule,
@@ -755,146 +755,183 @@ class DEService(ServicesModule):
         # Initialize return values
         self.service = {}
         self.changed = False
+        self.diff: Dict[str, Any] = {"before": {}, "after": {}}
 
     def process(self):
-        existing_result = self.de_client.get_service_by_name(
+        existing = self._find_existing()
+
+        if existing is None:
+            if self.state == "present":
+                self._handle_create()
+            return
+
+        if self.state == "absent":
+            self._handle_absent(existing)
+        elif self.state == "present":
+            self._handle_update(existing)
+
+    def _find_existing(self) -> Optional[Dict[str, Any]]:
+        result = self.de_client.get_service_by_name(
             self.name,
             env_name=self.environment,
         )
+        if result:
+            return result.get("service", result)
+        return None
 
-        if existing_result:
-            existing_service = existing_result.get("service", existing_result)
-            cluster_id = existing_service.get("clusterId")
+    def _handle_absent(self, existing: Dict[str, Any]) -> None:
+        self.changed = True
+        self.service = existing
+        if self.module._diff:
+            self.diff["before"] = existing
 
-            if self.state == "absent":
-                self.changed = True
-                self.service = existing_service
-
-                if not self.module.check_mode:
-                    if self.wait:
-                        result = self.de_client.wait_for_service_state(
-                            cluster_id=cluster_id,
-                            target_statuses=CdpDeClient.STOPPED_STATUSES,
-                            timeout=self.timeout,
-                            delay=self.delay,
-                            force=self.force,
-                        )
-                        self.service = result if result else {}
-                    else:
-                        self.de_client.disable_service(cluster_id, force=self.force)
-
-            elif self.state == "present":
-                update_params = check_service_updates(
+        if not self.module.check_mode:
+            cluster_id = existing.get("clusterId")
+            if self.wait:
+                result = self.de_client.wait_for_service_state(
                     cluster_id=cluster_id,
-                    service_details=existing_service,
-                    minimum_instances=self.minimum_instances,
-                    maximum_instances=self.maximum_instances,
-                    minimum_spot_instances=self.minimum_spot_instances,
-                    maximum_spot_instances=self.maximum_spot_instances,
-                    whitelist_ips=self.whitelist_ips,
-                    loadbalancer_allowlist=self.loadbalancer_ips,
-                    all_purpose_minimum_instances=self.all_purpose_minimum_instances,
-                    all_purpose_maximum_instances=self.all_purpose_maximum_instances,
-                    all_purpose_minimum_spot_instances=self.all_purpose_minimum_spot_instances,
-                    all_purpose_maximum_spot_instances=self.all_purpose_maximum_spot_instances,
+                    target_statuses=CdpDeClient.STOPPED_STATUSES,
+                    timeout=self.timeout,
+                    delay=self.delay,
+                    force=self.force,
                 )
+                self.service = result if result else {}
+            else:
+                self.de_client.disable_service(cluster_id, force=self.force)
 
-                if update_params:
-                    self.changed = True
-                    self.service = existing_service
+    def _handle_create(self) -> None:
+        self.changed = True
 
-                    if not self.module.check_mode:
-                        self.de_client.update_service(**update_params)
+        if self.module._diff:
+            self.diff["after"] = {
+                "name": self.name,
+                "status": "ClusterCreationInProgress",
+            }
 
-                        if self.wait:
-                            result = self.de_client.wait_for_service_state(
-                                cluster_id=cluster_id,
-                                target_statuses=CdpDeClient.REMOVABLE_STATUSES,
-                                timeout=self.timeout,
-                                delay=self.delay,
-                            )
-                            if result:
-                                self.service = result
-                else:
-                    self.service = existing_service
+        if self.module.check_mode:
+            return
 
-        else:
+        custom_azure_files_configs = None
+        if self.custom_azure_files_configs:
+            custom_azure_files_configs = {
+                "resourceGroup": self.custom_azure_files_configs["resource_group"],
+                "storageAccountName": self.custom_azure_files_configs["storage_account_name"],
+            }
+            if self.custom_azure_files_configs.get("azure_files_fqdn"):
+                custom_azure_files_configs["azureFilesFQDN"] = self.custom_azure_files_configs["azure_files_fqdn"]
 
-            if self.state == "present":
-                self.changed = True
+        result = self.de_client.enable_service(
+            name=self.name,
+            env=self.environment,
+            instance_type=self.instance_type,
+            minimum_instances=self.minimum_instances,
+            maximum_instances=self.maximum_instances,
+            minimum_spot_instances=self.minimum_spot_instances,
+            maximum_spot_instances=self.maximum_spot_instances,
+            enable_public_endpoint=self.enable_public_endpoint,
+            enable_private_network=self.enable_private_network,
+            enable_workload_analytics=self.enable_workload_analytics,
+            initial_instances=self.initial_instances,
+            initial_spot_instances=self.initial_spot_instances,
+            root_volume_size=self.root_volume_size,
+            chart_value_overrides=self.chart_value_overrides,
+            loadbalancer_allowlist=self.loadbalancer_ips,
+            whitelist_ips=self.whitelist_ips,
+            skip_validation=self.skip_validation,
+            use_ssd=self.use_ssd,
+            tags=self.tags,
+            resource_pool=self.resource_pool,
+            cpu_requests=self.cpu_requests,
+            memory_requests=self.memory_requests,
+            gpu_requests=self.gpu_requests,
+            subnets=self.subnets,
+            network_outbound_type=self.network_outbound_type,
+            deploy_previous_version=self.deploy_previous_version,
+            disable_arm64=self.disable_arm64,
+            azure_database_private_dns_zone_id=self.azure_database_private_dns_zone_id,
+            azure_fileshare_private_dns_zone_id=self.azure_fileshare_private_dns_zone_id,
+            azure_service_managed_identity=self.azure_service_managed_identity,
+            azure_virtual_cluster_managed_identities=self.azure_virtual_cluster_managed_identities,
+            custom_azure_files_configs=custom_azure_files_configs,
+            all_purpose_minimum_instances=self.all_purpose_minimum_instances,
+            all_purpose_maximum_instances=self.all_purpose_maximum_instances,
+            all_purpose_minimum_spot_instances=self.all_purpose_minimum_spot_instances,
+            all_purpose_maximum_spot_instances=self.all_purpose_maximum_spot_instances,
+            all_purpose_initial_instances=self.all_purpose_initial_instances,
+            all_purpose_initial_spot_instances=self.all_purpose_initial_spot_instances,
+            all_purpose_instance_type=self.all_purpose_instance_type,
+            all_purpose_root_volume_size=self.all_purpose_root_volume_size,
+        )
 
-                if not self.module.check_mode:
-                    custom_azure_files_configs = None
-                    if self.custom_azure_files_configs:
-                        custom_azure_files_configs = {
-                            "resourceGroup": self.custom_azure_files_configs["resource_group"],
-                            "storageAccountName": self.custom_azure_files_configs["storage_account_name"],
-                        }
-                        if self.custom_azure_files_configs.get("azure_files_fqdn"):
-                            custom_azure_files_configs["azureFilesFQDN"] = self.custom_azure_files_configs["azure_files_fqdn"]
+        service = result.get("service") if result else None
+        if service:
+            self.service = service
+            cluster_id = service.get("clusterId")
 
-                    result = self.de_client.enable_service(
-                        name=self.name,
-                        env=self.environment,
-                        instance_type=self.instance_type,
-                        minimum_instances=self.minimum_instances,
-                        maximum_instances=self.maximum_instances,
-                        minimum_spot_instances=self.minimum_spot_instances,
-                        maximum_spot_instances=self.maximum_spot_instances,
-                        enable_public_endpoint=self.enable_public_endpoint,
-                        enable_private_network=self.enable_private_network,
-                        enable_workload_analytics=self.enable_workload_analytics,
-                        initial_instances=self.initial_instances,
-                        initial_spot_instances=self.initial_spot_instances,
-                        root_volume_size=self.root_volume_size,
-                        chart_value_overrides=self.chart_value_overrides,
-                        loadbalancer_allowlist=self.loadbalancer_ips,
-                        whitelist_ips=self.whitelist_ips,
-                        skip_validation=self.skip_validation,
-                        use_ssd=self.use_ssd,
-                        tags=self.tags,
-                        resource_pool=self.resource_pool,
-                        cpu_requests=self.cpu_requests,
-                        memory_requests=self.memory_requests,
-                        gpu_requests=self.gpu_requests,
-                        subnets=self.subnets,
-                        network_outbound_type=self.network_outbound_type,
-                        deploy_previous_version=self.deploy_previous_version,
-                        disable_arm64=self.disable_arm64,
-                        azure_database_private_dns_zone_id=self.azure_database_private_dns_zone_id,
-                        azure_fileshare_private_dns_zone_id=self.azure_fileshare_private_dns_zone_id,
-                        azure_service_managed_identity=self.azure_service_managed_identity,
-                        azure_virtual_cluster_managed_identities=self.azure_virtual_cluster_managed_identities,
-                        custom_azure_files_configs=custom_azure_files_configs,
-                        all_purpose_minimum_instances=self.all_purpose_minimum_instances,
-                        all_purpose_maximum_instances=self.all_purpose_maximum_instances,
-                        all_purpose_minimum_spot_instances=self.all_purpose_minimum_spot_instances,
-                        all_purpose_maximum_spot_instances=self.all_purpose_maximum_spot_instances,
-                        all_purpose_initial_instances=self.all_purpose_initial_instances,
-                        all_purpose_initial_spot_instances=self.all_purpose_initial_spot_instances,
-                        all_purpose_instance_type=self.all_purpose_instance_type,
-                        all_purpose_root_volume_size=self.all_purpose_root_volume_size,
+            if self.wait and cluster_id:
+                wait_result = self.de_client.wait_for_service_state(
+                    cluster_id=cluster_id,
+                    target_statuses=CdpDeClient.REMOVABLE_STATUSES,
+                    timeout=self.timeout,
+                    delay=self.delay,
+                )
+                if wait_result:
+                    self.service = wait_result
+            if self.module._diff:
+                self.diff["after"] = self.service
+
+    def _handle_update(self, existing: Dict[str, Any]) -> None:
+        cluster_id = existing.get("clusterId")
+        update_params = check_service_updates(
+            cluster_id=cluster_id,
+            service_details=existing,
+            minimum_instances=self.minimum_instances,
+            maximum_instances=self.maximum_instances,
+            minimum_spot_instances=self.minimum_spot_instances,
+            maximum_spot_instances=self.maximum_spot_instances,
+            whitelist_ips=self.whitelist_ips,
+            loadbalancer_allowlist=self.loadbalancer_ips,
+            all_purpose_minimum_instances=self.all_purpose_minimum_instances,
+            all_purpose_maximum_instances=self.all_purpose_maximum_instances,
+            all_purpose_minimum_spot_instances=self.all_purpose_minimum_spot_instances,
+            all_purpose_maximum_spot_instances=self.all_purpose_maximum_spot_instances,
+        )
+
+        if update_params:
+            self.changed = True
+            self.service = existing
+
+            if self.module._diff:
+                self.diff["before"] = existing
+                self.diff["after"] = existing.copy()
+                self.diff["after"].update(update_params)
+
+            if not self.module.check_mode:
+                self.de_client.update_service(**update_params)
+
+                if self.wait:
+                    result = self.de_client.wait_for_service_state(
+                        cluster_id=cluster_id,
+                        target_statuses=CdpDeClient.REMOVABLE_STATUSES,
+                        timeout=self.timeout,
+                        delay=self.delay,
                     )
+                    if result:
+                        self.service = result
+                        if self.module._diff:
+                            self.diff["after"] = result
+        else:
+            self.service = existing
 
-                    service = result.get("service") if result else None
-                    if service:
-                        self.service = service
-                        cluster_id = service.get("clusterId")
 
-                        if self.wait and cluster_id:
-                            wait_result = self.de_client.wait_for_service_state(
-                                cluster_id=cluster_id,
-                                target_statuses=CdpDeClient.REMOVABLE_STATUSES,
-                                timeout=self.timeout,
-                                delay=self.delay,
-                            )
-                            if wait_result:
-                                self.service = wait_result
 
 
 def main():
     result = DEService()
     output = dict(changed=result.changed, service=result.service)
+
+    if result.diff["before"] or result.diff["after"]:
+        output["diff"] = result.diff
 
     if result.debug_log:
         output.update(sdk_out=result.log_out, sdk_out_lines=result.log_lines)
