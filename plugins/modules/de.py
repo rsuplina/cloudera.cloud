@@ -815,10 +815,14 @@ class DEService(ServicesModule):
         if self.custom_azure_files_configs:
             custom_azure_files_configs = {
                 "resourceGroup": self.custom_azure_files_configs["resource_group"],
-                "storageAccountName": self.custom_azure_files_configs["storage_account_name"],
+                "storageAccountName": self.custom_azure_files_configs[
+                    "storage_account_name"
+                ],
             }
             if self.custom_azure_files_configs.get("azure_files_fqdn"):
-                custom_azure_files_configs["azureFilesFQDN"] = self.custom_azure_files_configs["azure_files_fqdn"]
+                custom_azure_files_configs["azureFilesFQDN"] = (
+                    self.custom_azure_files_configs["azure_files_fqdn"]
+                )
 
         result = self.de_client.enable_service(
             name=self.name,
@@ -922,8 +926,6 @@ class DEService(ServicesModule):
                             self.diff["after"] = result
         else:
             self.service = existing
-
-
 
 
 def main():

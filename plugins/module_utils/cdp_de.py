@@ -401,7 +401,9 @@ class CdpDeClient:
         if azure_service_managed_identity is not None:
             data["azureServiceManagedIdentity"] = azure_service_managed_identity
         if azure_virtual_cluster_managed_identities is not None:
-            data["azureVirtualClusterManagedIdentities"] = azure_virtual_cluster_managed_identities
+            data["azureVirtualClusterManagedIdentities"] = (
+                azure_virtual_cluster_managed_identities
+            )
         if custom_azure_files_configs is not None:
             data["customAzureFilesConfigs"] = custom_azure_files_configs
         if all_purpose_minimum_instances is not None:
